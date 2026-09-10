@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Agent-generated working files, tool caches, and ML compiler caches
+.agents/
+.ruff_cache/
+unsloth_compiled_cache/

@@ -158,6 +158,100 @@ fi
         self.assertTrue(sft_pipeline.is_leakage(candidate_leaked, baseline_prompts))
         self.assertFalse(sft_pipeline.is_leakage(candidate_clean, baseline_prompts))
 
+    def test_split_pairs(self):
+        # 500 fixture records -> 400/50/50, disjoint, seed-stable
+        records = [
+            {
+                "prompt": f"Task prompt {i}",
+                "chosen": f"#!/usr/bin/env bash\necho 'chosen {i}'",
+                "rejected": f"#!/usr/bin/env bash\necho 'rejected {i}'",
+            }
+            for i in range(500)
+        ]
+        train, val, test = sft_pipeline.split_records(
+            records, train_count=400, val_count=50, test_count=50, seed=42
+        )
+        self.assertEqual(len(train), 400)
+        self.assertEqual(len(val), 50)
+        self.assertEqual(len(test), 50)
+
+        train_prompts = {r["prompt"] for r in train}
+        val_prompts = {r["prompt"] for r in val}
+        test_prompts = {r["prompt"] for r in test}
+
+        # Assert disjoint
+        self.assertTrue(train_prompts.isdisjoint(val_prompts))
+        self.assertTrue(train_prompts.isdisjoint(test_prompts))
+        self.assertTrue(val_prompts.isdisjoint(test_prompts))
+
+        # Assert seed-stable
+        t2, v2, te2 = sft_pipeline.split_records(
+            records, train_count=400, val_count=50, test_count=50, seed=42
+        )
+        self.assertEqual(train, t2)
+        self.assertEqual(val, v2)
+        self.assertEqual(test, te2)
+
+    def test_pair_validation(self):
+        # Valid preference pair
+        valid_pair = {
+            "prompt": "Write a script to backup /var/log",
+            "chosen": "#!/usr/bin/env bash\nset -euo pipefail\ntar -czf backup.tar.gz /var/log",
+            "rejected": "#!/usr/bin/env bash\ntar -czf backup.tar.gz /var/log",
+        }
+        is_valid, msg = sft_pipeline.validate_pair(valid_pair)
+        self.assertTrue(is_valid, f"Expected valid pair, got: {msg}")
+
+        # Missing keys
+        for missing_key in ["prompt", "chosen", "rejected"]:
+            bad_pair = dict(valid_pair)
+            del bad_pair[missing_key]
+            is_valid, msg = sft_pipeline.validate_pair(bad_pair)
+            self.assertFalse(is_valid, f"Expected invalid when missing {missing_key}")
+
+        # Empty values
+        for empty_key in ["prompt", "chosen", "rejected"]:
+            bad_pair = dict(valid_pair)
+            bad_pair[empty_key] = "   "
+            is_valid, msg = sft_pipeline.validate_pair(bad_pair)
+            self.assertFalse(is_valid, f"Expected invalid when empty {empty_key}")
+
+        # Non-string types
+        bad_pair = dict(valid_pair)
+        bad_pair["prompt"] = 12345
+        is_valid, msg = sft_pipeline.validate_pair(bad_pair)
+        self.assertFalse(is_valid, "Expected invalid for non-string prompt")
+
+    def test_pair_safety_check(self):
+        # Valid benign pair
+        safe_pair = {
+            "prompt": "Count lines in file",
+            "chosen": "#!/usr/bin/env bash\nset -euo pipefail\nwc -l < \"$1\"",
+            "rejected": "#!/usr/bin/env bash\nwc -l < $1",  # teachable unquoted flaw, but not catastrophic
+        }
+        is_safe, reasons = sft_pipeline.is_pair_safe(safe_pair)
+        self.assertTrue(is_safe, f"Expected safe pair, got: {reasons}")
+
+        # Catastrophic command in chosen
+        catastrophic_chosen = dict(safe_pair)
+        catastrophic_chosen["chosen"] = "#!/usr/bin/env bash\nrm -rf /"
+        is_safe, reasons = sft_pipeline.is_pair_safe(catastrophic_chosen)
+        self.assertFalse(is_safe, "Expected unsafe when chosen has catastrophic command")
+        self.assertTrue(len(reasons) > 0)
+
+        # Catastrophic command in rejected
+        catastrophic_rejected = dict(safe_pair)
+        catastrophic_rejected["rejected"] = "#!/usr/bin/env bash\nmkfs.ext4 /dev/sdb"
+        is_safe, reasons = sft_pipeline.is_pair_safe(catastrophic_rejected)
+        self.assertFalse(is_safe, "Expected unsafe when rejected has catastrophic command")
+        self.assertTrue(len(reasons) > 0)
+
+        # dd targeting raw disk
+        catastrophic_dd = dict(safe_pair)
+        catastrophic_dd["chosen"] = "#!/usr/bin/env bash\ndd if=/dev/zero of=/dev/sda bs=1M"
+        is_safe, reasons = sft_pipeline.is_pair_safe(catastrophic_dd)
+        self.assertFalse(is_safe, "Expected unsafe when chosen has dd to raw disk")
+
 
 if __name__ == "__main__":
     unittest.main()
