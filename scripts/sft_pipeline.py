@@ -383,6 +383,53 @@ def cmd_safety_check(args: argparse.Namespace) -> None:
     print("Safety check passed: 0 violations.")
 
 
+def extract_records_from_response(raw_text: str) -> List[Dict[str, Any]]:
+    """Extract valid messages records from JSONL or JSON array response."""
+    cleaned = re.sub(r'^```(?:jsonl?|json)?\s*$', '', raw_text, flags=re.MULTILINE)
+    records = []
+    for line in cleaned.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            repaired = re.sub(r'\\(?![/"\\bfnrtu])', r'\\\\', line)
+            obj = json.loads(repaired)
+            if isinstance(obj, dict) and "messages" in obj:
+                records.append(obj)
+            elif isinstance(obj, list):
+                for item in obj:
+                    if isinstance(item, dict) and "messages" in item:
+                        records.append(item)
+        except Exception:
+            pass
+
+    if records:
+        return records
+
+    # Fallback to streaming decoder
+    decoder = json.JSONDecoder()
+    idx = 0
+    s = cleaned.strip()
+    while idx < len(s):
+        while idx < len(s) and s[idx].isspace():
+            idx += 1
+        if idx >= len(s):
+            break
+        try:
+            obj, end_idx = decoder.raw_decode(s, idx)
+            if isinstance(obj, dict) and "messages" in obj:
+                records.append(obj)
+            elif isinstance(obj, list):
+                for item in obj:
+                    if isinstance(item, dict) and "messages" in item:
+                        records.append(item)
+            idx = end_idx
+        except Exception:
+            idx += 1
+
+    return records
+
+
 def cmd_generate(args: argparse.Namespace) -> None:
     """Generate SFT examples from briefs with resume support."""
     briefs_file = Path(args.briefs)
@@ -395,7 +442,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
         briefs = json.load(f)
 
     # Load manifest
-    manifest: Dict[str, bool] = {}
+    manifest: Dict[str, Any] = {}
     if manifest_file.exists():
         with open(manifest_file, "r", encoding="utf-8") as f:
             try:
@@ -410,8 +457,8 @@ def cmd_generate(args: argparse.Namespace) -> None:
         "and an assistant response containing a robust Bash script (with #!/usr/bin/env bash, "
         "set -euo pipefail, full variable quoting, defensive checks, and --dry-run/confirmation "
         "where destructive) followed by concise, production-grade explanations. "
-        "Output ONLY valid JSON: an array of objects, each object having format: "
-        '{"messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}'
+        "Format: Output each example as a single JSON object on its own line (JSONL), conforming to:\n"
+        '{"messages": [{"role": "system", "content": "You are a production-grade Bash engineering assistant. You write safe, idempotent, POSIX-aware Bash scripts with set -euo pipefail, robust quoting, and clear explanations."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}'
     )
 
     batch_size = 5
@@ -419,28 +466,34 @@ def cmd_generate(args: argparse.Namespace) -> None:
         slug = brief["slug"]
         target_count = brief["count"]
         slug_file = gen_dir / f"{slug}.jsonl"
-        num_batches = (target_count + batch_size - 1) // batch_size
 
-        print(f"\nProcessing brief: {slug} (target: {target_count} examples, {num_batches} batches)")
+        # Count existing lines
+        existing_count = 0
+        if slug_file.exists():
+            with open(slug_file, "r", encoding="utf-8") as sf:
+                existing_count = sum(1 for line in sf if line.strip())
 
-        for batch_idx in range(num_batches):
+        print(f"\nProcessing brief: {slug} (target: {target_count}, existing: {existing_count})")
+
+        batch_idx = existing_count // batch_size
+        while existing_count < target_count:
             batch_key = f"{slug}:{batch_idx}"
-            if manifest.get(batch_key):
-                print(f"  Batch {batch_idx+1}/{num_batches} already completed. Skipping.")
+            if manifest.get(batch_key) and existing_count >= (batch_idx + 1) * batch_size:
+                batch_idx += 1
                 continue
 
-            current_count = min(batch_size, target_count - batch_idx * batch_size)
+            needed = min(batch_size, target_count - existing_count)
             prompt = (
                 f"Topic: {slug}\n"
-                f"Weakness/Focus: {brief.get('weakness') or 'General Domain Coverage'}\n"
+                f"Focus: {brief.get('weakness') or 'General Domain Coverage'}\n"
                 f"Themes: {brief.get('themes', '')}\n"
                 f"Difficulty: {brief.get('difficulty', 'medium')}\n"
                 f"Must Include: {brief.get('must_include', 'Quoting, error handling, dry-run for deletes')}\n\n"
-                f"Generate exactly {current_count} unique and diverse training examples for this brief. "
-                "Output ONLY a valid JSON array of objects with the 'messages' schema."
+                f"Generate exactly {needed} unique and diverse training examples for this brief. "
+                "Output each example as a single JSON object per line (JSONL)."
             )
 
-            print(f"  Generating batch {batch_idx+1}/{num_batches} ({current_count} examples)...")
+            print(f"  Generating batch {batch_idx + 1} ({needed} examples needed, total so far: {existing_count}/{target_count})...")
             max_retries = 3
             batch_success = False
 
@@ -451,20 +504,14 @@ def cmd_generate(args: argparse.Namespace) -> None:
                         system_prompt=system_prompt,
                         model=args.model,
                         host=args.host,
-                        temperature=0.7,
-                        num_predict=2048,
+                        temperature=0.75,
+                        num_predict=3500,
                     )
 
-                    # Extract array
-                    match = re.search(r'\[\s*\{.*\}\s*\]', res, re.DOTALL)
-                    if not match:
-                        raise ValueError("No JSON array found in Ollama output")
-
-                    records = json.loads(match.group(0))
+                    records = extract_records_from_response(res)
                     valid_records = []
                     for r in records:
                         if "messages" in r and len(r["messages"]) >= 2:
-                            # Ensure system message exists
                             has_sys = any(m.get("role") == "system" for m in r["messages"])
                             if not has_sys:
                                 r["messages"].insert(
@@ -477,26 +524,31 @@ def cmd_generate(args: argparse.Namespace) -> None:
                             valid_records.append(r)
 
                     if not valid_records:
-                        raise ValueError("No valid records found in parsed JSON")
+                        raise ValueError("No valid records extracted from response")
 
-                    # Append to slug file
+                    # Append up to needed
+                    to_write = valid_records[:needed]
                     with open(slug_file, "a", encoding="utf-8") as sf:
-                        for vr in valid_records:
+                        for vr in to_write:
                             sf.write(json.dumps(vr) + "\n")
 
+                    existing_count += len(to_write)
                     manifest[batch_key] = True
+                    manifest[f"{slug}:count"] = existing_count
                     with open(manifest_file, "w", encoding="utf-8") as mf:
                         json.dump(manifest, mf, indent=2)
 
                     batch_success = True
-                    print(f"  -> Batch {batch_idx+1} saved ({len(valid_records)} records).")
+                    print(f"  -> Batch {batch_idx + 1} saved ({len(to_write)} records, total now: {existing_count}/{target_count}).")
+                    batch_idx += 1
                     break
                 except Exception as e:
-                    print(f"    Attempt {attempt+1} failed: {e}. Retrying...")
+                    print(f"    Attempt {attempt + 1} failed: {e}. Retrying...")
                     time.sleep(2)
 
             if not batch_success:
                 print(f"  ERROR: Failed batch {batch_key} after {max_retries} attempts.")
+                break
 
 
 def cmd_assemble(args: argparse.Namespace) -> None:
