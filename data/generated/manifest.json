@@ -21,5 +21,11 @@
   "weakness-error-handling:18": true,
   "weakness-error-handling:24": true,
   "weakness-idempotency-guards:0": true,
-  "weakness-idempotency-guards:count": 3
+  "weakness-idempotency-guards:count": 3,
+  "weakness-quoting-safety:0": true,
+  "weakness-quoting-safety:count": 5,
+  "weakness-quoting-safety:1": true,
+  "weakness-quoting-safety:2": true,
+  "weakness-quoting-safety:3": true,
+  "weakness-quoting-safety:4": true
 }

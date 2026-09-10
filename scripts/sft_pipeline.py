@@ -387,8 +387,29 @@ def cmd_safety_check(args: argparse.Namespace) -> None:
 
 
 def extract_records_from_response(raw_text: str) -> List[Dict[str, Any]]:
-    """Extract valid messages records from JSON object, array, or JSONL response."""
-    # 1. Try direct JSON parsing
+    """Extract valid messages records from delimiter blocks, JSON object, array, or JSONL response."""
+    # 1. Delimiter-based parsing (most robust for Bash code with quotes)
+    if "### PROMPT:" in raw_text and "### SCRIPT:" in raw_text:
+        pattern = re.compile(r'###\s*PROMPT:\s*(.*?)\s*###\s*SCRIPT:\s*(.*?)(?=(?:###\s*PROMPT:|$))', re.DOTALL)
+        records = []
+        for match in pattern.finditer(raw_text):
+            user_text = match.group(1).strip()
+            script_text = match.group(2).strip()
+            if user_text and script_text:
+                records.append({
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You are a production-grade Bash engineering assistant. You write safe, idempotent, POSIX-aware Bash scripts with set -euo pipefail, robust quoting, and clear explanations.",
+                        },
+                        {"role": "user", "content": user_text},
+                        {"role": "assistant", "content": script_text},
+                    ]
+                })
+        if records:
+            return records
+
+    # 2. Try direct JSON parsing
     try:
         data = json.loads(raw_text)
         records = []
@@ -405,27 +426,6 @@ def extract_records_from_response(raw_text: str) -> List[Dict[str, Any]]:
                                     {"role": "assistant", "content": ex["assistant"]},
                                 ]
                             })
-                        elif "prompt" in ex and ("script" in ex or "response" in ex):
-                            resp = ex.get("script") or ex.get("response")
-                            if "explanation" in ex:
-                                resp = f"{resp}\n\n{ex['explanation']}"
-                            records.append({
-                                "messages": [
-                                    {"role": "user", "content": ex["prompt"]},
-                                    {"role": "assistant", "content": resp},
-                                ]
-                            })
-                        elif "code" in ex and ("message" in ex or "description" in ex):
-                            prompt_text = ex.get("description") or "Write a Bash script."
-                            resp = ex["code"]
-                            if "message" in ex:
-                                resp = f"{resp}\n\n{ex['message']}"
-                            records.append({
-                                "messages": [
-                                    {"role": "user", "content": prompt_text},
-                                    {"role": "assistant", "content": resp},
-                                ]
-                            })
             elif "messages" in data and isinstance(data["messages"], list):
                 records.append(data)
         elif isinstance(data, list):
@@ -437,22 +437,15 @@ def extract_records_from_response(raw_text: str) -> List[Dict[str, Any]]:
     except Exception:
         pass
 
-    # 2. Try JSON Lines extraction
-    cleaned = re.sub(r'^```(?:jsonl?|json)?\s*$', '', raw_text, flags=re.MULTILINE)
+    # 3. Try regex extraction of all {"messages": [...]} objects
+    pattern = re.compile(r'\{\s*"messages"\s*:\s*\[.*?\]\s*\}', re.DOTALL)
     records = []
-    for line in cleaned.splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    for match in pattern.finditer(raw_text):
+        chunk = match.group(0)
         try:
-            repaired = re.sub(r'\\(?![/"\\bfnrtu])', r'\\\\', line)
-            obj = json.loads(repaired)
+            obj = json.loads(chunk)
             if isinstance(obj, dict) and "messages" in obj:
                 records.append(obj)
-            elif isinstance(obj, list):
-                for item in obj:
-                    if isinstance(item, dict) and "messages" in item:
-                        records.append(item)
         except Exception:
             pass
 
@@ -482,14 +475,12 @@ def cmd_generate(args: argparse.Namespace) -> None:
     system_prompt = (
         "You are an expert production Bash and Linux systems automation engineer. "
         "Generate high-quality, real-world training examples for a Shell SFT dataset. "
-        "Output ONLY a valid JSON object with key 'examples', where each item has format: "
-        '{"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}. '
-        "The assistant response must contain a robust, production-grade Bash script (with #!/usr/bin/env bash, "
-        "set -euo pipefail, full variable quoting, defensive checks, and --dry-run/confirmation "
-        "where destructive) followed by concise, production-grade explanations."
+        "Always structure your output with ### PROMPT: followed by the user task, "
+        "and ### SCRIPT: followed by the complete, production-grade Bash script "
+        "(with #!/usr/bin/env bash, set -euo pipefail, robust quoting, defensive checks, and dry-run flags) "
+        "and clear inline explanation."
     )
 
-    batch_size = 3
     for brief in briefs:
         slug = brief["slug"]
         target_count = brief["count"]
@@ -503,12 +494,9 @@ def cmd_generate(args: argparse.Namespace) -> None:
 
         print(f"\nProcessing brief: {slug} (target: {target_count}, existing: {existing_count})")
 
-        batch_idx = existing_count // batch_size
         consecutive_failures = 0
-
-        while existing_count < target_count and consecutive_failures < 5:
-            needed = min(batch_size, target_count - existing_count)
-            batch_key = f"{slug}:{batch_idx}"
+        while existing_count < target_count:
+            batch_key = f"{slug}:{existing_count}"
 
             prompt = (
                 f"Topic: {slug}\n"
@@ -516,11 +504,15 @@ def cmd_generate(args: argparse.Namespace) -> None:
                 f"Themes: {brief.get('themes', '')}\n"
                 f"Difficulty: {brief.get('difficulty', 'medium')}\n"
                 f"Must Include: {brief.get('must_include', 'Quoting, error handling, dry-run for deletes')}\n\n"
-                f"Generate exactly {needed} unique, non-trivial, and diverse training examples for this topic.\n"
-                'Output schema: {"examples": [{"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}]}'
+                f"Generate ONE unique, realistic, and non-trivial training example for this topic.\n\n"
+                "Format strictly as:\n"
+                "### PROMPT:\n"
+                "<User question or shell task>\n\n"
+                "### SCRIPT:\n"
+                "<Complete production Bash script with set -euo pipefail, full quoting, traps, and explanation>"
             )
 
-            print(f"  Generating batch {batch_idx + 1} ({needed} examples needed, total so far: {existing_count}/{target_count})...")
+            print(f"  Generating example for {slug} (progress: {existing_count + 1}/{target_count})...")
             try:
                 res = call_ollama(
                     prompt=prompt,
@@ -528,8 +520,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
                     model=args.model,
                     host=args.host,
                     temperature=0.75,
-                    num_predict=2500,
-                    response_format="json",
+                    num_predict=2048,
                 )
 
                 records = extract_records_from_response(res)
@@ -548,9 +539,9 @@ def cmd_generate(args: argparse.Namespace) -> None:
                         valid_records.append(r)
 
                 if not valid_records:
-                    raise ValueError("No valid records extracted from response")
+                    raise ValueError(f"Delimiters not found in response (length: {len(res)})")
 
-                to_write = valid_records[:needed]
+                to_write = valid_records[:1]
                 with open(slug_file, "a", encoding="utf-8") as sf:
                     for vr in to_write:
                         sf.write(json.dumps(vr) + "\n")
@@ -562,17 +553,13 @@ def cmd_generate(args: argparse.Namespace) -> None:
                     json.dump(manifest, mf, indent=2)
 
                 consecutive_failures = 0
-                print(f"  -> Batch {batch_idx + 1} saved ({len(to_write)} records, total now: {existing_count}/{target_count}).")
-                batch_idx += 1
+                print(f"  -> Saved example ({existing_count}/{target_count}).")
             except Exception as e:
                 consecutive_failures += 1
-                print(f"    Failed batch {batch_idx + 1} (error: {e}). Consecutive failures: {consecutive_failures}")
+                print(f"    Attempt failed: {e}. Retrying ({consecutive_failures})...")
                 time.sleep(2)
 
-        if existing_count >= target_count:
-            print(f"  Brief {slug} completed with {existing_count} records.")
-        else:
-            print(f"  Brief {slug} paused at {existing_count}/{target_count} after consecutive failures.")
+        print(f"  Brief {slug} completed with {existing_count} records.")
 
 
 def cmd_assemble(args: argparse.Namespace) -> None:
