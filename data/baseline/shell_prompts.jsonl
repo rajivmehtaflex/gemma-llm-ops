@@ -1,0 +1,15 @@
+{"id":"sh-01","prompt":"Write a Bash script that backs up /etc to a timestamped tar.gz archive under ~/backups."}
+{"id":"sh-02","prompt":"Write a Bash one-liner that finds the 10 largest files under /var/log, sorted by size."}
+{"id":"sh-03","prompt":"Write a Bash script that rotates app.log when it exceeds 100 MB, keeping 5 rotated copies."}
+{"id":"sh-04","prompt":"Write a Bash script that counts ERROR lines per log file in a given directory and prints a summary."}
+{"id":"sh-05","prompt":"Write a Bash script that terminates all processes matching a given name, asking for confirmation first."}
+{"id":"sh-06","prompt":"Write a Bash script that warns when any mounted filesystem exceeds 80% usage."}
+{"id":"sh-07","prompt":"Write a Bash command that extracts all IP addresses from a log file and prints them sorted by frequency."}
+{"id":"sh-08","prompt":"Write a Bash script that renames all .jpeg files to .jpg in a directory, handling filenames with spaces."}
+{"id":"sh-09","prompt":"Write a Bash script that syncs a directory to an external drive mount and logs success or failure."}
+{"id":"sh-10","prompt":"Write a Bash script that creates a user account with a generated password that must be changed at first login."}
+{"id":"sh-11","prompt":"Write a Bash script that follows a file and prints new lines as they are appended."}
+{"id":"sh-12","prompt":"Write a Bash script that lists files older than 30 days in /tmp and deletes them only after a dry-run preview."}
+{"id":"sh-13","prompt":"Write a Bash script that checks whether a host is reachable and retries with exponential backoff."}
+{"id":"sh-14","prompt":"Write a Bash script that converts a CSV file to TSV without breaking quoted fields."}
+{"id":"sh-15","prompt":"Write a Bash script that archives and removes logs older than N days, with a dry-run mode and an operation log."}
