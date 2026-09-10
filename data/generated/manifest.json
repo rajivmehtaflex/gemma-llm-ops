@@ -1,6 +1,6 @@
 {
   "weakness-error-handling:0": true,
-  "weakness-error-handling:count": 64,
+  "weakness-error-handling:count": 73,
   "weakness-error-handling:1": true,
   "weakness-error-handling:2": true,
   "weakness-error-handling:3": true,
@@ -15,5 +15,8 @@
   "weakness-error-handling:12": true,
   "weakness-error-handling:13": true,
   "weakness-error-handling:14": true,
-  "weakness-error-handling:15": true
+  "weakness-error-handling:15": true,
+  "weakness-error-handling:16": true,
+  "weakness-error-handling:17": true,
+  "weakness-error-handling:18": true
 }
