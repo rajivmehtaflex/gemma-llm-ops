@@ -13,3 +13,16 @@ wheels/
 .agents/
 .ruff_cache/
 unsloth_compiled_cache/
+
+# Model checkpoint weights and tokenizers (stored on Hugging Face Hub)
+*.safetensors
+*.bin
+*.model
+runs/*/tokenizer*
+runs/*/*.json
+runs/*/*.jinja
+checkpoint-*/
+runs/*/checkpoint-*/
+
+
+
