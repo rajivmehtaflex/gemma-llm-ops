@@ -1,0 +1,82 @@
+[
+  {
+    "slug": "weakness-error-handling",
+    "weakness": "missing exit code checks, silent failures in multi-command pipelines, unhandled exits",
+    "count": 75,
+    "themes": "multi-stage data pipelines, remote download verification, service checks, subshell error trapping",
+    "difficulty": "25 easy / 35 medium / 15 hard",
+    "must_include": "set -euo pipefail, trap error handlers on ERR and EXIT, explicit exit codes, descriptive stderr logging"
+  },
+  {
+    "slug": "weakness-quoting-safety",
+    "weakness": "unquoted variable expansion in loops, path handling with spaces, word splitting vulnerabilities",
+    "count": 75,
+    "themes": "batch renaming, path interpolation, argument forwarding with $@, file iteration",
+    "difficulty": "25 easy / 35 medium / 15 hard",
+    "must_include": "comprehensive quoting for all variable expansions, while IFS= read -r loops, quote command substitutions"
+  },
+  {
+    "slug": "weakness-idempotency-guards",
+    "weakness": "non-idempotent in-place modifications, duplicate appends, unverified state overwrite",
+    "count": 75,
+    "themes": "configuration updates, symlink setup, environment file management, conditional directory creation",
+    "difficulty": "25 easy / 35 medium / 15 hard",
+    "must_include": "pre-condition checks with test, atomic replacement using temporary files and mv, idempotency verification"
+  },
+  {
+    "slug": "weakness-destructive-dryrun",
+    "weakness": "unguarded destructive operations, missing dry-run preview, missing interactive confirmations",
+    "count": 75,
+    "themes": "log cleanup older than N days, process termination, bulk file deletion, cache purging",
+    "difficulty": "25 easy / 35 medium / 15 hard",
+    "must_include": "explicit --dry-run CLI flag, interactive confirmation prompts, safe listing before deletion"
+  },
+  {
+    "slug": "coverage-files",
+    "weakness": null,
+    "count": 50,
+    "themes": "file discovery, permission audits, size analysis, directory traversal, checksum verification",
+    "difficulty": "mixed",
+    "must_include": "idempotent mkdir, quoted paths, guarded operations, find -exec vs while-read"
+  },
+  {
+    "slug": "coverage-logs",
+    "weakness": null,
+    "count": 50,
+    "themes": "log rotation, pattern extraction, error counting, frequency sorting, timestamp parsing",
+    "difficulty": "mixed",
+    "must_include": "safe grep/awk/sed, handling compressed logs (.gz), atomic log rollover"
+  },
+  {
+    "slug": "coverage-backups",
+    "weakness": null,
+    "count": 50,
+    "themes": "timestamped tar archives, rsync synchronization, cloud mount backups, retention policies",
+    "difficulty": "mixed",
+    "must_include": "checksum generation and verification, exit status verification, error logging"
+  },
+  {
+    "slug": "coverage-processes",
+    "weakness": null,
+    "count": 50,
+    "themes": "process monitoring, resource limit enforcement, graceful vs forced termination, daemon health checks",
+    "difficulty": "mixed",
+    "must_include": "signal traps (SIGTERM, SIGINT), pidfile handling, user confirmation for kill operations"
+  },
+  {
+    "slug": "coverage-text",
+    "weakness": null,
+    "count": 50,
+    "themes": "CSV to TSV conversion, JSON processing with jq, stream filtering, regex transformations",
+    "difficulty": "mixed",
+    "must_include": "preserving quoted fields, handling embedded commas/newlines, stdin/stdout stream pipelines"
+  },
+  {
+    "slug": "coverage-automation",
+    "weakness": null,
+    "count": 50,
+    "themes": "cron job wrappers, host reachability with exponential backoff, systemd service helpers, lockfile management",
+    "difficulty": "mixed",
+    "must_include": "flock / lockfile guards against concurrent runs, retry counters with sleep backoff, structured exit codes"
+  }
+]
