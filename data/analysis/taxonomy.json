@@ -1,0 +1,70 @@
+{
+  "counts": {
+    "safety": 0,
+    "correctness": 1,
+    "error_handling": 1,
+    "quoting": 0,
+    "idempotency": 1,
+    "portability": 0,
+    "clarity": 0
+  },
+  "rankings": [
+    {
+      "lens": "correctness",
+      "fails": 1,
+      "severity": 6,
+      "score": 6,
+      "fail_rate": "1/15",
+      "rank": 1
+    },
+    {
+      "lens": "error_handling",
+      "fails": 1,
+      "severity": 5,
+      "score": 5,
+      "fail_rate": "1/15",
+      "rank": 2
+    },
+    {
+      "lens": "idempotency",
+      "fails": 1,
+      "severity": 3,
+      "score": 3,
+      "fail_rate": "1/15",
+      "rank": 3
+    },
+    {
+      "lens": "safety",
+      "fails": 0,
+      "severity": 7,
+      "score": 0,
+      "fail_rate": "0/15",
+      "rank": 4
+    },
+    {
+      "lens": "quoting",
+      "fails": 0,
+      "severity": 4,
+      "score": 0,
+      "fail_rate": "0/15",
+      "rank": 5
+    },
+    {
+      "lens": "portability",
+      "fails": 0,
+      "severity": 2,
+      "score": 0,
+      "fail_rate": "0/15",
+      "rank": 6
+    },
+    {
+      "lens": "clarity",
+      "fails": 0,
+      "severity": 1,
+      "score": 0,
+      "fail_rate": "0/15",
+      "rank": 7
+    }
+  ],
+  "total_evaluated": 15
+}
