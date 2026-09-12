@@ -88,6 +88,17 @@ class TestSFTArtifactManifest(unittest.TestCase):
 
         self.assertTrue(any("required" in error.lower() for error in errors))
 
+    def test_manifest_excludes_hub_local_cache_bookkeeping(self):
+        cache = self.root / ".cache" / "huggingface" / "download"
+        cache.mkdir(parents=True)
+        (cache / "adapter_model.safetensors.metadata").write_text(
+            "cache metadata", encoding="utf-8"
+        )
+
+        manifest = build_artifact_manifest(self.root, repo_id="repo", revision="d" * 40)
+
+        self.assertFalse(any(name.startswith(".cache/") for name in manifest["files"]))
+
     def test_validation_detects_manifest_base_model_tampering(self):
         manifest = build_artifact_manifest(self.root, repo_id="repo", revision="e" * 40)
         manifest["base_model_name_or_path"] = "different/model"

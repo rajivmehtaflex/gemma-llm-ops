@@ -18,7 +18,11 @@ from scripts.sft_evaluation import (
     parse_rubric_grade,
     pending_prompt_cases,
 )
-from scripts.eval_sft import grade_variant, load_validated_artifact_manifest
+from scripts.eval_sft import (
+    grade_variant,
+    load_validated_artifact_manifest,
+    resolve_base_model,
+)
 from scripts.sft_artifact import build_artifact_manifest, write_manifest
 
 
@@ -96,6 +100,16 @@ class TestPromptLoading(unittest.TestCase):
             (adapter / "tokenizer.json").write_text("tampered", encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_validated_artifact_manifest(adapter, manifest_path)
+
+    def test_evaluation_uses_manifest_base_model_unless_explicitly_matching(self):
+        manifest = {"base_model_name_or_path": "unsloth/exact-base"}
+
+        self.assertEqual(resolve_base_model(None, manifest), "unsloth/exact-base")
+        self.assertEqual(
+            resolve_base_model("unsloth/exact-base", manifest), "unsloth/exact-base"
+        )
+        with self.assertRaises(ValueError):
+            resolve_base_model("unsloth/different-base", manifest)
 
 
 class TestRubricParsing(unittest.TestCase):

@@ -6,6 +6,7 @@ import argparse
 import importlib.metadata
 import json
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,9 @@ def parse_hf_identity(output: str, expected_user: str) -> bool:
         return True
     if first_line.lower().startswith("username:"):
         return first_line.split(":", 1)[1].strip().lower() == expected
+    match = re.search(r"(?:^|\s)user=([^\s]+)", first_line, re.IGNORECASE)
+    if match:
+        return match.group(1).strip().lower() == expected
     try:
         payload = json.loads(output)
     except (TypeError, json.JSONDecodeError):

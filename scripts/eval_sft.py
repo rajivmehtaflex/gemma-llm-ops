@@ -134,6 +134,23 @@ def load_validated_artifact_manifest(
     return manifest
 
 
+def resolve_base_model(
+    requested_model: str | None, artifact_manifest: dict[str, Any]
+) -> str:
+    """Use the adapter's recorded base model and reject mismatched overrides."""
+
+    manifest_model = artifact_manifest.get("base_model_name_or_path")
+    if not isinstance(manifest_model, str) or not manifest_model.strip():
+        raise ValueError("SFT adapter manifest lacks base_model_name_or_path")
+    manifest_model = manifest_model.strip()
+    if requested_model and requested_model.strip() != manifest_model:
+        raise ValueError(
+            "Base model does not match the adapter manifest: "
+            f"requested {requested_model!r}, expected {manifest_model!r}"
+        )
+    return requested_model.strip() if requested_model else manifest_model
+
+
 def _load_torch_model(model_name: str, max_seq_length: int):
     import torch
     from unsloth import FastLanguageModel
@@ -292,6 +309,7 @@ def run_evaluation(args: argparse.Namespace) -> dict[str, Any]:
     artifact_manifest = load_validated_artifact_manifest(
         pathlib.Path(args.adapter), artifact_manifest_path
     )
+    base_model = resolve_base_model(getattr(args, "base_model", None), artifact_manifest)
     cases = load_prompt_cases(baseline_path, heldout_path)
     if args.max_prompts is not None:
         cases = cases[: args.max_prompts]
@@ -301,7 +319,7 @@ def run_evaluation(args: argparse.Namespace) -> dict[str, Any]:
     base_records = generate_variant(
         cases,
         "base",
-        args.base_model,
+        base_model,
         base_path,
         args.seed,
         args.max_seq_length,
@@ -343,7 +361,7 @@ def run_evaluation(args: argparse.Namespace) -> dict[str, Any]:
     gate = {
         **overall,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "base_model": args.base_model,
+        "base_model": base_model,
         "adapter": args.adapter,
         "artifact_manifest": {
             "path": str(artifact_manifest_path),
@@ -365,7 +383,11 @@ def run_evaluation(args: argparse.Namespace) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-model", default="unsloth/gemma-3-4b-it")
+    parser.add_argument(
+        "--base-model",
+        default=None,
+        help="Optional base model override; defaults to the verified adapter manifest",
+    )
     parser.add_argument("--adapter", default="runs/sft-shell")
     parser.add_argument(
         "--artifact-manifest",

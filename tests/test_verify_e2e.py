@@ -251,7 +251,7 @@ class TestAdapterArtifactsCheck(unittest.TestCase):
         self.assertEqual(res.status, CheckStatus.PASS)
 
 
-class TestMetricThresholdParsers(unittest.TestCase):
+class TestStructuredTier3Evidence(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.tmppath = pathlib.Path(self.tmpdir.name)
@@ -261,12 +261,18 @@ class TestMetricThresholdParsers(unittest.TestCase):
     def tearDown(self):
         self.tmpdir.cleanup()
 
-    def test_dpo_preference_rate_above_threshold(self):
+    def test_dpo_accepts_structured_passing_evidence(self):
         dpo_dir = self.runs_dir / "dpo-shell"
         dpo_dir.mkdir(parents=True)
-        eval_md = dpo_dir / "eval.md"
-        eval_md.write_text(
-            "# DPO Evaluation\n- Held-out accuracy: 64.5%\n- Safety regressions: 0\n",
+        (dpo_dir / "eval_results.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "PASS",
+                    "preference_rate": 0.645,
+                    "safety_regressions": 0,
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -275,26 +281,58 @@ class TestMetricThresholdParsers(unittest.TestCase):
         self.assertEqual(res.status, CheckStatus.PASS)
         self.assertIn("64.5%", res.message)
 
-    def test_dpo_preference_rate_below_threshold(self):
+    def test_dpo_rejects_prose_only_claims(self):
         dpo_dir = self.runs_dir / "dpo-shell"
         dpo_dir.mkdir(parents=True)
-        eval_md = dpo_dir / "eval.md"
-        eval_md.write_text(
-            "# DPO Evaluation\n- Preference rate: 58.0%\n- Safety regressions: 0\n",
+        (dpo_dir / "eval.md").write_text(
+            "# DPO Evaluation\n- Preference rate: 99%\n- Safety regressions: 0\n",
             encoding="utf-8",
         )
 
         verifier = E2EVerifier(repo_root=self.tmppath)
         res = verifier.check_tier3_dpo_evaluation()
         self.assertEqual(res.status, CheckStatus.FAIL)
-        self.assertIn("does not exceed 60%", res.message)
+        self.assertIn("structured", res.message.lower())
 
-    def test_rm_probes_and_accuracy(self):
+    def test_dpo_rejects_malformed_or_unsafe_evidence(self):
+        dpo_dir = self.runs_dir / "dpo-shell"
+        dpo_dir.mkdir(parents=True)
+        evidence_path = dpo_dir / "eval_results.json"
+        cases = [
+            ({"schema_version": 1, "status": "PASS"}, "preference_rate"),
+            (
+                {
+                    "schema_version": 1,
+                    "status": "PASS",
+                    "preference_rate": 0.8,
+                    "safety_regressions": 1,
+                },
+                "safety regressions",
+            ),
+        ]
+        verifier = E2EVerifier(repo_root=self.tmppath)
+        for evidence, expected in cases:
+            with self.subTest(evidence=evidence):
+                evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+                result = verifier.check_tier3_dpo_evaluation()
+                self.assertEqual(result.status, CheckStatus.FAIL)
+                self.assertIn(expected, result.message.lower())
+
+    def test_rm_accepts_structured_accuracy_and_six_probes(self):
         rm_dir = self.runs_dir / "rm-shell"
         rm_dir.mkdir(parents=True)
-        eval_md = rm_dir / "eval.md"
-        eval_md.write_text(
-            "# RM Evaluation\n- Pairwise accuracy: 72.0%\n- Adversarial probes: 6/6\n",
+        (rm_dir / "probe_results.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "PASS",
+                    "pairwise_accuracy": 0.72,
+                    "adversarial_probes": [
+                        {"name": f"probe-{index}", "passed": True}
+                        for index in range(1, 7)
+                    ],
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -303,11 +341,10 @@ class TestMetricThresholdParsers(unittest.TestCase):
         self.assertEqual(res.status, CheckStatus.PASS)
         self.assertIn("72.0%", res.message)
 
-    def test_rm_probes_failed(self):
+    def test_rm_rejects_prose_only_claims(self):
         rm_dir = self.runs_dir / "rm-shell"
         rm_dir.mkdir(parents=True)
-        eval_md = rm_dir / "eval.md"
-        eval_md.write_text(
+        (rm_dir / "eval.md").write_text(
             "# RM Evaluation\n- Pairwise accuracy: 72.0%\n- Adversarial probes: 5/6\n",
             encoding="utf-8",
         )
@@ -315,7 +352,30 @@ class TestMetricThresholdParsers(unittest.TestCase):
         verifier = E2EVerifier(repo_root=self.tmppath)
         res = verifier.check_tier3_reward_model_evaluation()
         self.assertEqual(res.status, CheckStatus.FAIL)
-        self.assertIn("adversarial probe", res.message.lower())
+        self.assertIn("structured", res.message.lower())
+
+    def test_rm_rejects_incomplete_structured_probe_evidence(self):
+        rm_dir = self.runs_dir / "rm-shell"
+        rm_dir.mkdir(parents=True)
+        (rm_dir / "probe_results.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "PASS",
+                    "pairwise_accuracy": 0.72,
+                    "adversarial_probes": [
+                        {"name": f"probe-{index}", "passed": True}
+                        for index in range(1, 6)
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = E2EVerifier(repo_root=self.tmppath).check_tier3_reward_model_evaluation()
+
+        self.assertEqual(result.status, CheckStatus.FAIL)
+        self.assertIn("six", result.message.lower())
 
     def test_ppo_smoke_log_verification(self):
         ppo_dir = self.runs_dir / "ppo"
@@ -329,7 +389,8 @@ class TestMetricThresholdParsers(unittest.TestCase):
                         "reward": 0.5 + step * 0.01,
                         "kl": 0.02,
                         "entropy": 0.1,
-                        "length": 150,
+                        "response_length": 150,
+                        "vram_mb": 12_000,
                     }
                 )
                 + "\n"
@@ -340,6 +401,61 @@ class TestMetricThresholdParsers(unittest.TestCase):
         res = verifier.check_tier3_ppo_smoke_run()
         self.assertEqual(res.status, CheckStatus.PASS)
         self.assertIn("100 steps", res.message)
+
+    def test_ppo_rejects_invalid_or_incomplete_jsonl_records(self):
+        ppo_dir = self.runs_dir / "ppo"
+        ppo_dir.mkdir(parents=True)
+        smoke_log = ppo_dir / "smoke_log.jsonl"
+        rows = [
+            {
+                "step": step,
+                "reward": 0.5,
+                "kl": 0.02,
+                "entropy": 0.1,
+                "response_length": 150,
+                "vram_mb": 12_000,
+            }
+            for step in range(100)
+        ]
+        del rows[37]["vram_mb"]
+        smoke_log.write_text(
+            "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+        )
+
+        result = E2EVerifier(repo_root=self.tmppath).check_tier3_ppo_smoke_run()
+
+        self.assertEqual(result.status, CheckStatus.FAIL)
+        self.assertIn("record", result.message.lower())
+
+    def test_ppo_accepts_structured_blocker_and_rejects_notes(self):
+        ppo_dir = self.runs_dir / "ppo"
+        ppo_dir.mkdir(parents=True)
+        (ppo_dir / "NOTES.md").write_text(
+            "PPO is blocked by an unsupported trainer API.", encoding="utf-8"
+        )
+        verifier = E2EVerifier(repo_root=self.tmppath)
+
+        prose_result = verifier.check_tier3_ppo_smoke_run()
+
+        self.assertEqual(prose_result.status, CheckStatus.FAIL)
+        self.assertIn("structured", prose_result.message.lower())
+
+        (ppo_dir / "blocker.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "BLOCKED",
+                    "stage": "ppo",
+                    "reason": "Installed PPOTrainer cannot accept the required value model.",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        blocker_result = verifier.check_tier3_ppo_smoke_run()
+
+        self.assertEqual(blocker_result.status, CheckStatus.PASS)
+        self.assertIn("blocker", blocker_result.message.lower())
 
 
 class TestReportFormatting(unittest.TestCase):
@@ -413,23 +529,22 @@ class TestCLIExecution(unittest.TestCase):
                 check=False,
             )
         self.assertEqual(res.returncode, 1)
-        self.assertIn("Structured SFT evaluation gate not found", res.stdout)
+        self.assertIn("SFT adapter artifact manifest not found", res.stdout)
 
 
-class TestStructuredSFTGate(unittest.TestCase):
+class TestCompletedSFTHandoff(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.tmpdir.name)
-        self.gate_path = self.root / "runs" / "sft-shell" / "evaluation" / "gate.json"
-        self.gate_path.parent.mkdir(parents=True)
         self.adapter_path = self.root / "runs" / "sft-shell"
         self.adapter_path.mkdir(parents=True, exist_ok=True)
+        (self.adapter_path / "evaluation").mkdir()
         (self.adapter_path / "adapter_config.json").write_text(
             json.dumps({"base_model_name_or_path": "base/model"}), encoding="utf-8"
         )
         (self.adapter_path / "adapter_model.safetensors").write_bytes(b"weights")
         (self.adapter_path / "tokenizer.json").write_text("{}", encoding="utf-8")
-        self.manifest_path = self.gate_path.parent / "adapter_manifest.json"
+        self.manifest_path = self.adapter_path / "evaluation" / "adapter_manifest.json"
         write_manifest(
             self.manifest_path,
             build_artifact_manifest(
@@ -440,70 +555,35 @@ class TestStructuredSFTGate(unittest.TestCase):
     def tearDown(self):
         self.tmpdir.cleanup()
 
-    def test_sft_check_requires_structured_passing_gate(self):
-        self.gate_path.write_text(
-            json.dumps(
-                {
-                    "status": "PASS",
-                    "runs": [
-                        {
-                            "status": "PASS",
-                            "seed": 42,
-                            "reasons": [],
-                            "adapter": {
-                                "catastrophic_violations": 0,
-                                "cohorts": {"heldout": {"weighted_failure_score": 0}},
-                            },
-                            "base": {"cohorts": {"heldout": {"weighted_failure_score": 6}}},
-                        }
-                    ],
-                }
-            ),
-            encoding="utf-8",
-        )
-
+    def test_sft_check_accepts_completed_manifest_handoff_without_evaluation(self):
         result = E2EVerifier(repo_root=self.root).check_tier3_sft_evaluation()
 
         self.assertEqual(result.status, CheckStatus.PASS)
+        self.assertIn("handoff", result.message.lower())
 
-    def test_sft_check_rejects_unstructured_markdown_claims(self):
-        (self.root / "runs" / "sft-shell" / "eval.md").write_text(
-            "safety regressions: 0\nimproved pass rate\n", encoding="utf-8"
-        )
-
-        result = E2EVerifier(repo_root=self.root).check_tier3_sft_evaluation()
-
-        self.assertEqual(result.status, CheckStatus.FAIL)
-        self.assertIn("structured", result.message.lower())
+    def test_sft_check_rejects_malformed_manifest_fields(self):
+        original = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        cases = [
+            ({"revision": "main"}, "immutable"),
+            ({"required_files": "adapter_config.json"}, "required_files"),
+            ({"base_model_name_or_path": "other/model"}, "base_model"),
+        ]
+        verifier = E2EVerifier(repo_root=self.root)
+        for changes, expected in cases:
+            with self.subTest(changes=changes):
+                manifest = {**original, **changes}
+                self.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                result = verifier.check_tier3_sft_evaluation()
+                self.assertEqual(result.status, CheckStatus.FAIL)
+                self.assertIn(expected, result.details.lower())
 
     def test_sft_check_rejects_tampered_adapter_artifact(self):
-        self.gate_path.write_text(
-            json.dumps(
-                {
-                    "status": "PASS",
-                    "artifact_manifest": {"path": str(self.manifest_path)},
-                    "runs": [
-                        {
-                            "status": "PASS",
-                            "seed": 42,
-                            "reasons": [],
-                            "adapter": {
-                                "catastrophic_violations": 0,
-                                "cohorts": {"heldout": {"weighted_failure_score": 0}},
-                            },
-                            "base": {"cohorts": {"heldout": {"weighted_failure_score": 6}},},
-                        }
-                    ],
-                }
-            ),
-            encoding="utf-8",
-        )
         (self.adapter_path / "tokenizer.json").write_text("tampered", encoding="utf-8")
 
         result = E2EVerifier(repo_root=self.root).check_tier3_sft_evaluation()
 
         self.assertEqual(result.status, CheckStatus.FAIL)
-        self.assertIn("manifest", result.message.lower())
+        self.assertIn("sha-256 mismatch", result.details.lower())
 
 
 if __name__ == "__main__":

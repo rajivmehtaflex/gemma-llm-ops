@@ -37,9 +37,10 @@ def sha256_file(path: pathlib.Path, chunk_size: int = 1024 * 1024) -> str:
 def _iter_artifact_files(adapter_dir: pathlib.Path) -> Iterable[pathlib.Path]:
     for path in sorted(adapter_dir.rglob("*")):
         relative_parts = path.relative_to(adapter_dir).parts
-        # Evaluation evidence lives beside the adapter under runs/sft-shell;
-        # it is not part of the Hub snapshot and must not make its hash drift.
-        if relative_parts and relative_parts[0] == "evaluation":
+        # Evaluation evidence and Hugging Face's local download bookkeeping
+        # live beside the adapter under runs/sft-shell; neither is part of the
+        # Hub snapshot and neither must make its hash drift.
+        if relative_parts and relative_parts[0] in {"evaluation", ".cache"}:
             continue
         if path.is_symlink():
             raise ValueError(f"Symlink is not allowed in adapter artifact: {path}")

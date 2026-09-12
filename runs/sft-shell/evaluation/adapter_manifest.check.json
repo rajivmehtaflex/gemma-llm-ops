@@ -1,0 +1,157 @@
+{
+  "base_model_name_or_path": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
+  "files": {
+    ".cache/huggingface/.gitignore": {
+      "sha256": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1",
+      "size_bytes": 1
+    },
+    ".cache/huggingface/CACHEDIR.TAG": {
+      "sha256": "f6572428f6d5e1575e73a1502895a8731f10757dfbb634909c6e154b849af91d",
+      "size_bytes": 191
+    },
+    ".cache/huggingface/download/.gitattributes.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    ".cache/huggingface/download/.gitattributes.metadata": {
+      "sha256": "663081b6eaf2e395e78faf13c2bbc05f0782faf4b5392b2be0a1661950a877d8",
+      "size_bytes": 100
+    },
+    ".cache/huggingface/download/README.md.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    ".cache/huggingface/download/README.md.metadata": {
+      "sha256": "8e3bf0a45a999ad4314dc95ca17bdcbe360b7ca3bec95383523f1c640fbe2ad7",
+      "size_bytes": 100
+    },
+    ".cache/huggingface/download/adapter_config.json.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    ".cache/huggingface/download/adapter_config.json.metadata": {
+      "sha256": "730b5f002e2b8cbbd5730611b16e7ce95b59b3cae2d181fde9b4b0758bff64d4",
+      "size_bytes": 101
+    },
+    ".cache/huggingface/download/adapter_model.safetensors.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    ".cache/huggingface/download/adapter_model.safetensors.metadata": {
+      "sha256": "f128b6aaf3a3475188ca0b3269cc8c89e2e4a25e28cf4ffe6a21b122b5ad45fe",
+      "size_bytes": 125
+    },
+    ".cache/huggingface/download/chat_template.jinja.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    ".cache/huggingface/download/chat_template.jinja.metadata": {
+      "sha256": "cdcbffeba0f817e3e0f3acea9525501987f0575f1b76051a99f674054b974776",
+      "size_bytes": 101
+    },
+    ".cache/huggingface/download/model_card.md.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    ".cache/huggingface/download/model_card.md.metadata": {
+      "sha256": "80e7e89d304e0457f4f1d333eb21d0b7848cec7225b96017b2054ba4da0c8732",
+      "size_bytes": 101
+    },
+    ".cache/huggingface/download/processor_config.json.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    ".cache/huggingface/download/processor_config.json.metadata": {
+      "sha256": "5d8978d7f9a018534064c9875e961b6f25086efcdff63321ac37a8e078b4a42d",
+      "size_bytes": 101
+    },
+    ".cache/huggingface/download/tokenizer.json.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    ".cache/huggingface/download/tokenizer.json.metadata": {
+      "sha256": "a10ec7318cf4d761c389af04ddf298424739a6ac1935551f1c7cd3b6949154f6",
+      "size_bytes": 124
+    },
+    ".cache/huggingface/download/tokenizer.model.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    ".cache/huggingface/download/tokenizer.model.metadata": {
+      "sha256": "708ff3f50d4c2566902f51441b90ba03951d12a8c6b00ec2d1567bd51dbd8d42",
+      "size_bytes": 124
+    },
+    ".cache/huggingface/download/tokenizer_config.json.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    ".cache/huggingface/download/tokenizer_config.json.metadata": {
+      "sha256": "799e5f8d9d554a5ec18a78f88d71ceae4ee72c266121c909bbc5dfef30f77306",
+      "size_bytes": 101
+    },
+    ".cache/huggingface/download/train_log.md.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    ".cache/huggingface/download/train_log.md.metadata": {
+      "sha256": "f7964f0c7ef0a9d085493e0034ba54b4d9eb6a1d4a1f823c3442e483982cf2fa",
+      "size_bytes": 101
+    },
+    ".cache/huggingface/trees/e9dcaa7999ed3128f3798ea976ea935d832a1e20.json": {
+      "sha256": "868a8a55fb3cdbef15a6917af5836ae1c3182f9e4fd85525764b95756d7b3255",
+      "size_bytes": 1770
+    },
+    ".gitattributes": {
+      "sha256": "34448b82c17d60fec9b65b1f093c115ddbaadc04beb1b0140b6bfed2e012a930",
+      "size_bytes": 1570
+    },
+    "README.md": {
+      "sha256": "a7eb80d8edfad85b881e77c9bd2d465e77991e4235ef7d2c5d658d3cf000bf2b",
+      "size_bytes": 2474
+    },
+    "adapter_config.json": {
+      "sha256": "e3c20c0b019304db9dbdc0fa9b552e76681476247d8995cae1aefa8ec6e9b212",
+      "size_bytes": 1540
+    },
+    "adapter_model.safetensors": {
+      "sha256": "deecf5dab0756be7754b6419cb18497a2cdd6164f4fc9048101efba52c4d372d",
+      "size_bytes": 119280712
+    },
+    "chat_template.jinja": {
+      "sha256": "7de1c58e208eda46e9c7f86397df37ec49883aeece39fb961e0a6b24088dd3c4",
+      "size_bytes": 1532
+    },
+    "model_card.md": {
+      "sha256": "a7eb80d8edfad85b881e77c9bd2d465e77991e4235ef7d2c5d658d3cf000bf2b",
+      "size_bytes": 2474
+    },
+    "processor_config.json": {
+      "sha256": "e58dda857eb60dae48a0146bedd13f9e4664f4066d6269f1eaa934db8f2d704f",
+      "size_bytes": 519
+    },
+    "tokenizer.json": {
+      "sha256": "daab2354f8a74e70d70b4d1f804939b68a8c9624dd06cb7858e52dd8970e9726",
+      "size_bytes": 33384567
+    },
+    "tokenizer.model": {
+      "sha256": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+      "size_bytes": 4689074
+    },
+    "tokenizer_config.json": {
+      "sha256": "46bce8e4984f090c1ee9968f38eec9e3424572f0afd794d0060a3b8c89953c9d",
+      "size_bytes": 1155428
+    },
+    "train_log.md": {
+      "sha256": "94f5e28c603e2bb29c8cd60170e23614bfd5f25e6056e84c15e796f6359725bf",
+      "size_bytes": 275
+    }
+  },
+  "repo_id": "rajivmehtapy/gemma-shell-sft",
+  "required_files": [
+    "adapter_config.json",
+    "adapter_model.safetensors",
+    "tokenizer.json"
+  ],
+  "revision": "e9dcaa7999ed3128f3798ea976ea935d832a1e20",
+  "schema_version": 1
+}
