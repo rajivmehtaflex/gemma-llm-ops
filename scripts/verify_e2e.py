@@ -1405,105 +1405,141 @@ class E2EVerifier:
                 duration_sec=time.time() - t0,
             )
 
-        # Check for smoke run log files or documented blocker note
         smoke_log = ppo_dir / "smoke_log.jsonl"
-        train_log = ppo_dir / "train_log.md"
-        notes_log = ppo_dir / "NOTES.md"
+        blocker_file = ppo_dir / "blocker.json"
 
-        # Case A: Smoke log exists
         if smoke_log.is_file():
-            step_count = 0
-            has_reward, has_kl, has_entropy, has_len = False, False, False, False
-            with open(smoke_log, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip():
-                        step_count += 1
-                        try:
-                            entry = json.loads(line)
-                            if "reward" in entry or "reward_mean" in entry:
-                                has_reward = True
-                            if "kl" in entry or "kl_divergence" in entry:
-                                has_kl = True
-                            if "entropy" in entry:
-                                has_entropy = True
-                            if "response_length" in entry or "length" in entry:
-                                has_len = True
-                        except Exception:
-                            pass
-
-            if step_count < 100:
+            entries: list[dict[str, Any]] = []
+            try:
+                lines = smoke_log.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeDecodeError) as error:
                 return CheckResult(
                     name=name,
                     tier=3,
                     status=CheckStatus.FAIL,
-                    message=f"PPO smoke run logged {step_count} steps, expected 100 steps",
+                    message="Structured PPO smoke log is unreadable",
+                    details=f"Log: {smoke_log}\nError: {error}",
+                    duration_sec=time.time() - t0,
+                )
+            for line_number, line in enumerate(lines, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError as error:
+                    return CheckResult(
+                        name=name,
+                        tier=3,
+                        status=CheckStatus.FAIL,
+                        message=f"PPO smoke log record {line_number} is malformed JSON",
+                        details=f"Log: {smoke_log}\nError: {error}",
+                        duration_sec=time.time() - t0,
+                    )
+                if not isinstance(entry, dict):
+                    return CheckResult(
+                        name=name,
+                        tier=3,
+                        status=CheckStatus.FAIL,
+                        message=f"PPO smoke log record {line_number} is not a JSON object",
+                        details=f"Log: {smoke_log}",
+                        duration_sec=time.time() - t0,
+                    )
+                entries.append(entry)
+
+            if len(entries) != 100:
+                return CheckResult(
+                    name=name,
+                    tier=3,
+                    status=CheckStatus.FAIL,
+                    message=f"PPO smoke run logged {len(entries)} steps, expected exactly 100 steps",
                     details=f"Log: {smoke_log}",
                     duration_sec=time.time() - t0,
                 )
 
-            missing_metrics = []
-            if not has_reward:
-                missing_metrics.append("reward")
-            if not has_kl:
-                missing_metrics.append("kl")
-            if not has_entropy:
-                missing_metrics.append("entropy")
-            if not has_len:
-                missing_metrics.append("response_length")
-
-            if missing_metrics:
-                return CheckResult(
-                    name=name,
-                    tier=3,
-                    status=CheckStatus.FAIL,
-                    message=f"PPO smoke log missing required metrics: {', '.join(missing_metrics)}",
-                    details=f"Log: {smoke_log}\nFound steps: {step_count}",
-                    duration_sec=time.time() - t0,
-                )
+            required_metrics = (
+                "step",
+                "reward",
+                "kl",
+                "entropy",
+                "response_length",
+                "vram_mb",
+            )
+            for index, entry in enumerate(entries, start=1):
+                invalid_fields = [
+                    field
+                    for field in required_metrics
+                    if field not in entry
+                    or isinstance(entry[field], bool)
+                    or not isinstance(entry[field], (int, float))
+                ]
+                if invalid_fields:
+                    return CheckResult(
+                        name=name,
+                        tier=3,
+                        status=CheckStatus.FAIL,
+                        message=f"PPO smoke log record {index} has invalid required metrics",
+                        details=(
+                            f"Log: {smoke_log}\n"
+                            f"Invalid or missing: {', '.join(invalid_fields)}"
+                        ),
+                        duration_sec=time.time() - t0,
+                    )
 
             return CheckResult(
                 name=name,
                 tier=3,
                 status=CheckStatus.PASS,
-                message=f"PPO smoke run completed with {step_count} steps and all metrics logged",
-                details=f"Log file: {smoke_log}\nMetrics logged: reward, kl, entropy, length across {step_count} steps.",
+                message="PPO smoke run completed with 100 steps and all metrics logged",
+                details=(
+                    f"Log file: {smoke_log}\n"
+                    "Per-step metrics: reward, kl, entropy, response_length, vram_mb."
+                ),
                 duration_sec=time.time() - t0,
             )
 
-        # Case B: train_log.md exists with step table/summary
-        if train_log.is_file():
-            content = train_log.read_text(encoding="utf-8", errors="replace")
-            has_step = re.search(r"100\s*steps?", content, re.IGNORECASE) is not None
-            has_metrics = all(k in content.lower() for k in ["reward", "kl", "entropy"])
-            if has_step and has_metrics:
+        if blocker_file.is_file():
+            blocker, read_error = _read_json_object(blocker_file)
+            if read_error:
                 return CheckResult(
                     name=name,
                     tier=3,
-                    status=CheckStatus.PASS,
-                    message="PPO smoke run log verified in train_log.md",
-                    details=f"File: {train_log}",
+                    status=CheckStatus.FAIL,
+                    message="Structured PPO blocker is malformed",
+                    details=f"File: {blocker_file}\nError: {read_error}",
                     duration_sec=time.time() - t0,
                 )
-
-        # Case C: Documented blocker note (per workbook §3.4 rule)
-        if notes_log.is_file():
-            content = notes_log.read_text(encoding="utf-8", errors="replace")
-            if "block" in content.lower() or "unsupported" in content.lower():
+            assert blocker is not None
+            valid_blocker = (
+                blocker.get("schema_version") == 1
+                and blocker.get("status") == "BLOCKED"
+                and blocker.get("stage") == "ppo"
+                and isinstance(blocker.get("reason"), str)
+                and bool(blocker["reason"].strip())
+            )
+            if not valid_blocker:
                 return CheckResult(
                     name=name,
                     tier=3,
-                    status=CheckStatus.PASS,
-                    message="PPO execution blocker documented per workbook §3.4 rule in NOTES.md",
-                    details=f"File: {notes_log}\nContent preview:\n{content[:200]}",
+                    status=CheckStatus.FAIL,
+                    message="Structured PPO blocker is missing required evidence",
+                    details=f"File: {blocker_file}",
                     duration_sec=time.time() - t0,
                 )
+            return CheckResult(
+                name=name,
+                tier=3,
+                status=CheckStatus.PASS,
+                message="Structured PPO execution blocker verified",
+                details=f"File: {blocker_file}\nReason: {blocker['reason']}",
+                duration_sec=time.time() - t0,
+            )
 
         return CheckResult(
             name=name,
             tier=3,
             status=CheckStatus.FAIL,
-            message="No valid PPO smoke run logs or documented blocker notes found in runs/ppo/",
-            details=f"Checked: {smoke_log}, {train_log}, {notes_log}",
+            message="No valid structured PPO smoke log or blocker evidence found",
+            details=f"Checked: {smoke_log}, {blocker_file}",
             duration_sec=time.time() - t0,
         )
 
