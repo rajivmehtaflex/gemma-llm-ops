@@ -19,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.sft_evaluation import (
+    SEVERITY_RANKS,
     decide_overall_gate,
     evaluate_seed_gate,
     load_prompt_cases,
@@ -232,7 +233,10 @@ def grade_variant(
 ) -> list[dict[str, Any]]:
     rows = list(records)
     for index, row in enumerate(rows):
-        if not row.get("needs_human") and set(row.get("grades", {})):
+        if (
+            not row.get("needs_human")
+            and set(row.get("grades", {})) == set(SEVERITY_RANKS)
+        ):
             continue
         eval_prompt = f"PROMPT:\n{row['prompt']}\n\nRESPONSE:\n{row['response']}"
         raw_grade = call_ollama(

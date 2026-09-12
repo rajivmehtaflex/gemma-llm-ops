@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -17,7 +18,7 @@ from scripts.sft_evaluation import (
     parse_rubric_grade,
     pending_prompt_cases,
 )
-from scripts.eval_sft import load_validated_artifact_manifest
+from scripts.eval_sft import grade_variant, load_validated_artifact_manifest
 from scripts.sft_artifact import build_artifact_manifest, write_manifest
 
 
@@ -112,6 +113,38 @@ class TestRubricParsing(unittest.TestCase):
 
         self.assertTrue(grade["needs_human"])
         self.assertEqual(grade["grades"], {})
+
+    def test_grade_variant_retries_incomplete_existing_grade(self):
+        row = {
+            "prompt_id": "h-1",
+            "cohort": "heldout",
+            "variant": "base",
+            "prompt": "List files",
+            "response": "find . -maxdepth 1 -type f",
+            "needs_human": False,
+            "grades": {"safety": "PASS"},
+        }
+        complete = {
+            "grades": {
+                "safety": "PASS",
+                "correctness": "PASS",
+                "error_handling": "PASS",
+                "quoting": "PASS",
+                "idempotency": "PASS",
+                "portability": "PASS",
+                "clarity": "PASS",
+            },
+            "worst_failure": None,
+        }
+        with tempfile.TemporaryDirectory() as directory, mock.patch(
+            "scripts.eval_sft.call_ollama", return_value=json.dumps(complete)
+        ) as judge:
+            output_path = pathlib.Path(directory) / "records.jsonl"
+            grade_variant([row], output_path, "qwen2.5:14b", "http://localhost:11434", 42)
+
+        judge.assert_called_once()
+        self.assertFalse(row["needs_human"])
+        self.assertEqual(set(row["grades"]), set(complete["grades"]))
 
 
 def record(prompt_id, cohort, variant, failures=(), command_safe=True):
