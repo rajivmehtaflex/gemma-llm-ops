@@ -23,6 +23,7 @@ from scripts.verify_e2e import (  # noqa: E402
     CheckStatus,
     E2EVerifier,
 )
+from scripts.sft_artifact import build_artifact_manifest, write_manifest
 
 
 class TestCheckResultDataclass(unittest.TestCase):
@@ -395,6 +396,114 @@ class TestCLIExecution(unittest.TestCase):
             check=False,
         )
         self.assertEqual(res.returncode, 2)
+
+    def test_cli_sft_check_runs_without_unimplemented_later_tiers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            res = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "verify_e2e.py"),
+                    "--check",
+                    "sft",
+                    "--repo-root",
+                    tmpdir,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("Structured SFT evaluation gate not found", res.stdout)
+
+
+class TestStructuredSFTGate(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.tmpdir.name)
+        self.gate_path = self.root / "runs" / "sft-shell" / "evaluation" / "gate.json"
+        self.gate_path.parent.mkdir(parents=True)
+        self.adapter_path = self.root / "runs" / "sft-shell"
+        self.adapter_path.mkdir(parents=True, exist_ok=True)
+        (self.adapter_path / "adapter_config.json").write_text(
+            json.dumps({"base_model_name_or_path": "base/model"}), encoding="utf-8"
+        )
+        (self.adapter_path / "adapter_model.safetensors").write_bytes(b"weights")
+        (self.adapter_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+        self.manifest_path = self.gate_path.parent / "adapter_manifest.json"
+        write_manifest(
+            self.manifest_path,
+            build_artifact_manifest(
+                self.adapter_path, repo_id="repo", revision="a" * 40
+            ),
+        )
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_sft_check_requires_structured_passing_gate(self):
+        self.gate_path.write_text(
+            json.dumps(
+                {
+                    "status": "PASS",
+                    "runs": [
+                        {
+                            "status": "PASS",
+                            "seed": 42,
+                            "reasons": [],
+                            "adapter": {
+                                "catastrophic_violations": 0,
+                                "cohorts": {"heldout": {"weighted_failure_score": 0}},
+                            },
+                            "base": {"cohorts": {"heldout": {"weighted_failure_score": 6}}},
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = E2EVerifier(repo_root=self.root).check_tier3_sft_evaluation()
+
+        self.assertEqual(result.status, CheckStatus.PASS)
+
+    def test_sft_check_rejects_unstructured_markdown_claims(self):
+        (self.root / "runs" / "sft-shell" / "eval.md").write_text(
+            "safety regressions: 0\nimproved pass rate\n", encoding="utf-8"
+        )
+
+        result = E2EVerifier(repo_root=self.root).check_tier3_sft_evaluation()
+
+        self.assertEqual(result.status, CheckStatus.FAIL)
+        self.assertIn("structured", result.message.lower())
+
+    def test_sft_check_rejects_tampered_adapter_artifact(self):
+        self.gate_path.write_text(
+            json.dumps(
+                {
+                    "status": "PASS",
+                    "artifact_manifest": {"path": str(self.manifest_path)},
+                    "runs": [
+                        {
+                            "status": "PASS",
+                            "seed": 42,
+                            "reasons": [],
+                            "adapter": {
+                                "catastrophic_violations": 0,
+                                "cohorts": {"heldout": {"weighted_failure_score": 0}},
+                            },
+                            "base": {"cohorts": {"heldout": {"weighted_failure_score": 6}},},
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (self.adapter_path / "tokenizer.json").write_text("tampered", encoding="utf-8")
+
+        result = E2EVerifier(repo_root=self.root).check_tier3_sft_evaluation()
+
+        self.assertEqual(result.status, CheckStatus.FAIL)
+        self.assertIn("manifest", result.message.lower())
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ This runbook provides step-by-step instructions to resume the full Gemma RLHF tr
 
 - **Operating System:** Ubuntu 22.04 / 24.04 LTS
 - **GPU:** NVIDIA GPU with $\ge$ 24 GB VRAM (`nvidia-smi` confirms driver and CUDA support)
-- **Hugging Face Account:** `rajivmehtapy` (Write-access token required)
+- **Hugging Face Account:** `rajivmehtapy` (authenticate with a newly generated write-scoped token; never commit or paste it into commands)
 
 ---
 
@@ -27,27 +27,27 @@ git clone https://github.com/rajivmehtaflex/gemma-llm-ops.git
 cd gemma-llm-ops
 git checkout block3-training
 
-# 4. Create and activate virtual environment
-uv venv --python 3.12
+# 4. Create and activate the locked Python 3.12 training environment
+uv sync --group training
 source .venv/bin/activate
 
-# 5. Install Unsloth and Hugging Face CLI
-uv pip install unsloth "huggingface_hub[cli]"
-python3 -c "import unsloth, torch; print(f'Unsloth OK on {torch.cuda.get_device_name(0)}')"
+# 5. Verify the GPU-backed stack and local services
+uv run --group training python scripts/training_env.py
 ```
 
 ---
 
 ## 3. Hugging Face Authentication
 
-Authenticate using Hugging Face's interactive browser flow. Never place an
-access token in this file, a shell command, or shell history:
+Authenticate using Hugging Face's interactive browser flow. Revoke any token
+that was previously exposed, then create a fresh write-scoped token. Never
+place an access token in this file, a shell command, or shell history:
 
 ```bash
-hf auth login --force
+uv run --group training hf auth login --force
 
 # Verify authenticated identity
-hf auth whoami
+uv run --group training hf auth whoami
 # Expected output: user=rajivmehtapy
 ```
 
@@ -55,20 +55,48 @@ hf auth whoami
 
 ## 4. Download SFT Adapter Artifact
 
-Download the trained SFT model checkpoint from the Hugging Face Hub:
+Download the trained SFT model checkpoint from the Hugging Face Hub. The
+helper resolves the requested ref to the server-returned commit SHA, downloads
+that exact snapshot, and writes an atomic hash manifest:
 
 ```bash
 mkdir -p runs/sft-shell
-hf download rajivmehtapy/gemma-shell-sft --local-dir runs/sft-shell
+uv run --group training python scripts/download_sft_artifact.py \
+    --repo-id rajivmehtapy/gemma-shell-sft \
+    --adapter runs/sft-shell \
+    --manifest runs/sft-shell/evaluation/adapter_manifest.json
 
 # Verify downloaded adapter files
 ls -la runs/sft-shell/
 # Expected: adapter_model.safetensors, adapter_config.json, tokenizer.json
+cat runs/sft-shell/evaluation/adapter_manifest.json
 ```
 
 ---
 
-## 5. Execute Remaining Training Stages
+## 5. Validated SFT Gate (current stopping point)
+
+Run the paired base-versus-adapter evaluation on the 15 frozen prompts and 60
+held-out prompts. Every response is graded by the seven-lens rubric through the
+local Ollama judge; the structured gate requires complete evidence, no
+catastrophic adapter violations, and a strictly lower held-out weighted
+failure score. Seed 42 is primary; run seed 43 only if seed 42 fails.
+
+```bash
+uv run --group training python scripts/eval_sft.py --seed 42
+
+# Only a structured PASS gate is accepted; Markdown-only claims are rejected.
+uv run --group training python scripts/verify_e2e.py --check sft --repo-root .
+```
+
+Do not start DPO until this gate is `PASS`. If seed 42 returns
+`RETRY_REQUIRED`, inspect the persisted JSONL records, resolve any malformed
+human grades, and rerun once with `--seed 43`; a seed-43 pass is recorded as
+`INCONCLUSIVE`, not an unconditional promotion.
+
+---
+
+## 6. Execute Remaining Training Stages
 
 ### Stage 1: Phase D — Direct Preference Optimization (DPO)
 
