@@ -10,6 +10,7 @@ dependencies = []
 training = [
     "datasets==4.3.0",
     "huggingface-hub>=1,<2",
+    "mergekit==0.1.4",
     "peft==0.20.0",
     "tokenizers==0.22.2",
     "torch==2.12.1",

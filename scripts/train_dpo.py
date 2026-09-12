@@ -99,7 +99,7 @@ def main():
     trainer = DPOTrainer(
         model=model,
         ref_model=None,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         args=dpo_config,

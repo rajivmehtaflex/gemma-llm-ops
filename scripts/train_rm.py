@@ -94,7 +94,7 @@ def main():
 
     trainer = RewardTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         args=rm_config,
