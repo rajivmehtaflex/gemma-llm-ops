@@ -20,6 +20,7 @@ import argparse
 import dataclasses
 import enum
 import json
+import math
 import os
 import pathlib
 import re
@@ -37,6 +38,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.sft_artifact import validate_artifact_manifest  # noqa: E402
+
+EXPECTED_SFT_REPO_ID = "rajivmehtapy/gemma-shell-sft"
+EXPECTED_SFT_REVISION = "e9dcaa7999ed3128f3798ea976ea935d832a1e20"
+EXPECTED_SFT_BASE_MODEL = "unsloth/gemma-3-4b-it-unsloth-bnb-4bit"
 
 
 class CheckStatus(str, enum.Enum):
@@ -65,10 +70,16 @@ class CheckResult:
         }
 
 
+def _reject_nonfinite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON number is not allowed: {value}")
+
+
 def _read_json_object(path: pathlib.Path) -> tuple[dict[str, Any] | None, str | None]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        value = json.loads(
+            path.read_text(encoding="utf-8"), parse_constant=_reject_nonfinite_json
+        )
+    except (OSError, UnicodeDecodeError, ValueError) as error:
         return None, str(error)
     if not isinstance(value, dict):
         return None, "expected a JSON object"
@@ -79,7 +90,7 @@ def _percentage(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     percentage = float(value) * 100.0 if value <= 1.0 else float(value)
-    if percentage < 0.0 or percentage > 100.0:
+    if not math.isfinite(percentage) or percentage < 0.0 or percentage > 100.0:
         return None
     return percentage
 
@@ -1174,6 +1185,26 @@ class E2EVerifier:
                 duration_sec=time.time() - t0,
             )
 
+        pinned_identity = {
+            "repo_id": EXPECTED_SFT_REPO_ID,
+            "revision": EXPECTED_SFT_REVISION,
+            "base_model_name_or_path": EXPECTED_SFT_BASE_MODEL,
+        }
+        identity_mismatches = [
+            f"{field}: expected {expected!r}, found {manifest.get(field)!r}"
+            for field, expected in pinned_identity.items()
+            if manifest.get(field) != expected
+        ]
+        if identity_mismatches:
+            return CheckResult(
+                name=name,
+                tier=3,
+                status=CheckStatus.FAIL,
+                message="SFT adapter identity does not match the pinned completed handoff",
+                details=f"File: {manifest_path}\n" + "\n".join(identity_mismatches),
+                duration_sec=time.time() - t0,
+            )
+
         return CheckResult(
             name=name,
             tier=3,
@@ -1425,8 +1456,8 @@ class E2EVerifier:
                 if not line.strip():
                     continue
                 try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError as error:
+                    entry = json.loads(line, parse_constant=_reject_nonfinite_json)
+                except ValueError as error:
                     return CheckResult(
                         name=name,
                         tier=3,
@@ -1457,7 +1488,6 @@ class E2EVerifier:
                 )
 
             required_metrics = (
-                "step",
                 "reward",
                 "kl",
                 "entropy",
@@ -1471,7 +1501,17 @@ class E2EVerifier:
                     if field not in entry
                     or isinstance(entry[field], bool)
                     or not isinstance(entry[field], (int, float))
+                    or not math.isfinite(entry[field])
                 ]
+                if (
+                    "step" not in entry
+                    or isinstance(entry.get("step"), bool)
+                    or not isinstance(entry.get("step"), int)
+                ):
+                    invalid_fields.insert(0, "step")
+                for field in ("response_length", "vram_mb"):
+                    if field not in invalid_fields and entry[field] < 0:
+                        invalid_fields.append(field)
                 if invalid_fields:
                     return CheckResult(
                         name=name,
@@ -1484,6 +1524,17 @@ class E2EVerifier:
                         ),
                         duration_sec=time.time() - t0,
                     )
+
+            steps = [entry["step"] for entry in entries]
+            if steps not in (list(range(100)), list(range(1, 101))):
+                return CheckResult(
+                    name=name,
+                    tier=3,
+                    status=CheckStatus.FAIL,
+                    message="PPO smoke log steps must be unique and sequential",
+                    details="Expected ordered steps 0-99 or 1-100",
+                    duration_sec=time.time() - t0,
+                )
 
             return CheckResult(
                 name=name,

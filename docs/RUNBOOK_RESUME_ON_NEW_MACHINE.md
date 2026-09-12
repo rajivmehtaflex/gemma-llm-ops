@@ -53,50 +53,28 @@ uv run --group training hf auth whoami
 
 ---
 
-## 4. Download SFT Adapter Artifact
+## 4. Completed SFT Adapter Handoff
 
-Download the trained SFT model checkpoint from the Hugging Face Hub. The
-helper resolves the requested ref to the server-returned commit SHA, downloads
-that exact snapshot, and writes an atomic hash manifest:
+The SFT stage is already complete. Reuse the checked-in local adapter and its
+existing manifest; do not download, retrain, grade, or promote another SFT
+artifact during this execution. The pinned handoff identity is:
 
-```bash
-mkdir -p runs/sft-shell
-uv run --group training python scripts/download_sft_artifact.py \
-    --repo-id rajivmehtapy/gemma-shell-sft \
-    --adapter runs/sft-shell \
-    --manifest runs/sft-shell/evaluation/adapter_manifest.json
+- Repository: `rajivmehtapy/gemma-shell-sft`
+- Immutable revision: `e9dcaa7999ed3128f3798ea976ea935d832a1e20`
+- Base model: `unsloth/gemma-3-4b-it-unsloth-bnb-4bit`
 
-# Verify downloaded adapter files
-ls -la runs/sft-shell/
-# Expected: adapter_model.safetensors, adapter_config.json, tokenizer.json
-cat runs/sft-shell/evaluation/adapter_manifest.json
-```
-
----
-
-## 5. Validated SFT Gate (current stopping point)
-
-Run the paired base-versus-adapter evaluation on the 15 frozen prompts and 60
-held-out prompts. Every response is graded by the seven-lens rubric through the
-local Ollama judge; the structured gate requires complete evidence, no
-catastrophic adapter violations, and a strictly lower held-out weighted
-failure score. Seed 42 is primary; run seed 43 only if seed 42 fails.
+Before starting DPO, validate the manifest schema, required files, hashes,
+sizes, and exact pinned identity against the local adapter:
 
 ```bash
-uv run --group training python scripts/eval_sft.py --seed 42
-
-# Only a structured PASS gate is accepted; Markdown-only claims are rejected.
 uv run --group training python scripts/verify_e2e.py --check sft --repo-root .
 ```
 
-Do not start DPO until this gate is `PASS`. If seed 42 returns
-`RETRY_REQUIRED`, inspect the persisted JSONL records, resolve any malformed
-human grades, and rerun once with `--seed 43`; a seed-43 pass is recorded as
-`INCONCLUSIVE`, not an unconditional promotion.
+Do not start DPO unless this completed-handoff check passes.
 
 ---
 
-## 6. Execute Remaining Training Stages
+## 5. Execute Remaining Training Stages
 
 ### Stage 1: Phase D — Direct Preference Optimization (DPO)
 

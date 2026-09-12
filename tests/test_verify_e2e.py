@@ -261,6 +261,27 @@ class TestStructuredTier3Evidence(unittest.TestCase):
     def tearDown(self):
         self.tmpdir.cleanup()
 
+    def _write_ppo_rows(self, rows):
+        ppo_dir = self.runs_dir / "ppo"
+        ppo_dir.mkdir(parents=True, exist_ok=True)
+        (ppo_dir / "smoke_log.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+        )
+
+    @staticmethod
+    def _ppo_rows(start=0):
+        return [
+            {
+                "step": step,
+                "reward": 0.5,
+                "kl": 0.02,
+                "entropy": 0.1,
+                "response_length": 150,
+                "vram_mb": 12_000,
+            }
+            for step in range(start, start + 100)
+        ]
+
     def test_dpo_accepts_structured_passing_evidence(self):
         dpo_dir = self.runs_dir / "dpo-shell"
         dpo_dir.mkdir(parents=True)
@@ -317,6 +338,32 @@ class TestStructuredTier3Evidence(unittest.TestCase):
                 result = verifier.check_tier3_dpo_evaluation()
                 self.assertEqual(result.status, CheckStatus.FAIL)
                 self.assertIn(expected, result.message.lower())
+
+    def test_dpo_rejects_nonfinite_and_malformed_metrics(self):
+        dpo_dir = self.runs_dir / "dpo-shell"
+        dpo_dir.mkdir(parents=True)
+        evidence_path = dpo_dir / "eval_results.json"
+        verifier = E2EVerifier(repo_root=self.tmppath)
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                evidence_path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "status": "PASS",
+                            "preference_rate": value,
+                            "safety_regressions": 0,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                result = verifier.check_tier3_dpo_evaluation()
+                self.assertEqual(result.status, CheckStatus.FAIL)
+
+        evidence_path.write_text('{"schema_version": 1,', encoding="utf-8")
+        malformed_result = verifier.check_tier3_dpo_evaluation()
+        self.assertEqual(malformed_result.status, CheckStatus.FAIL)
+        self.assertIn("malformed", malformed_result.message.lower())
 
     def test_rm_accepts_structured_accuracy_and_six_probes(self):
         rm_dir = self.runs_dir / "rm-shell"
@@ -376,6 +423,36 @@ class TestStructuredTier3Evidence(unittest.TestCase):
 
         self.assertEqual(result.status, CheckStatus.FAIL)
         self.assertIn("six", result.message.lower())
+
+    def test_rm_rejects_nonfinite_and_malformed_metrics(self):
+        rm_dir = self.runs_dir / "rm-shell"
+        rm_dir.mkdir(parents=True)
+        evidence_path = rm_dir / "probe_results.json"
+        probes = [
+            {"name": f"probe-{index}", "passed": True}
+            for index in range(1, 7)
+        ]
+        verifier = E2EVerifier(repo_root=self.tmppath)
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                evidence_path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "status": "PASS",
+                            "pairwise_accuracy": value,
+                            "adversarial_probes": probes,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                result = verifier.check_tier3_reward_model_evaluation()
+                self.assertEqual(result.status, CheckStatus.FAIL)
+
+        evidence_path.write_text("[]", encoding="utf-8")
+        malformed_result = verifier.check_tier3_reward_model_evaluation()
+        self.assertEqual(malformed_result.status, CheckStatus.FAIL)
+        self.assertIn("malformed", malformed_result.message.lower())
 
     def test_ppo_smoke_log_verification(self):
         ppo_dir = self.runs_dir / "ppo"
@@ -457,6 +534,60 @@ class TestStructuredTier3Evidence(unittest.TestCase):
         self.assertEqual(blocker_result.status, CheckStatus.PASS)
         self.assertIn("blocker", blocker_result.message.lower())
 
+    def test_ppo_accepts_consistent_one_based_steps(self):
+        self._write_ppo_rows(self._ppo_rows(start=1))
+
+        result = E2EVerifier(repo_root=self.tmppath).check_tier3_ppo_smoke_run()
+
+        self.assertEqual(result.status, CheckStatus.PASS)
+
+    def test_ppo_rejects_duplicate_or_nonsequential_steps(self):
+        verifier = E2EVerifier(repo_root=self.tmppath)
+        cases = []
+        duplicate = self._ppo_rows()
+        duplicate[50]["step"] = duplicate[49]["step"]
+        cases.append(duplicate)
+        nonsequential = self._ppo_rows()
+        nonsequential[50]["step"] = 100
+        cases.append(nonsequential)
+
+        for rows in cases:
+            with self.subTest(steps=[row["step"] for row in rows[48:52]]):
+                self._write_ppo_rows(rows)
+                result = verifier.check_tier3_ppo_smoke_run()
+                self.assertEqual(result.status, CheckStatus.FAIL)
+                self.assertIn("sequential", result.message.lower())
+
+    def test_ppo_rejects_nonfinite_metrics_and_negative_resource_values(self):
+        verifier = E2EVerifier(repo_root=self.tmppath)
+        cases = [
+            ("reward", float("nan")),
+            ("kl", float("inf")),
+            ("entropy", float("-inf")),
+            ("response_length", -1),
+            ("vram_mb", -1),
+        ]
+        for field, value in cases:
+            with self.subTest(field=field, value=value):
+                rows = self._ppo_rows()
+                rows[25][field] = value
+                self._write_ppo_rows(rows)
+                result = verifier.check_tier3_ppo_smoke_run()
+                self.assertEqual(result.status, CheckStatus.FAIL)
+                self.assertIn("record", result.message.lower())
+
+    def test_ppo_rejects_malformed_jsonl_evidence(self):
+        ppo_dir = self.runs_dir / "ppo"
+        ppo_dir.mkdir(parents=True)
+        (ppo_dir / "smoke_log.jsonl").write_text(
+            json.dumps(self._ppo_rows()[0]) + "\n{" + "\n", encoding="utf-8"
+        )
+
+        result = E2EVerifier(repo_root=self.tmppath).check_tier3_ppo_smoke_run()
+
+        self.assertEqual(result.status, CheckStatus.FAIL)
+        self.assertIn("malformed json", result.message.lower())
+
 
 class TestReportFormatting(unittest.TestCase):
     def test_text_and_json_reports(self):
@@ -533,6 +664,10 @@ class TestCLIExecution(unittest.TestCase):
 
 
 class TestCompletedSFTHandoff(unittest.TestCase):
+    EXPECTED_REPO = "rajivmehtapy/gemma-shell-sft"
+    EXPECTED_REVISION = "e9dcaa7999ed3128f3798ea976ea935d832a1e20"
+    EXPECTED_BASE_MODEL = "unsloth/gemma-3-4b-it-unsloth-bnb-4bit"
+
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.tmpdir.name)
@@ -540,7 +675,8 @@ class TestCompletedSFTHandoff(unittest.TestCase):
         self.adapter_path.mkdir(parents=True, exist_ok=True)
         (self.adapter_path / "evaluation").mkdir()
         (self.adapter_path / "adapter_config.json").write_text(
-            json.dumps({"base_model_name_or_path": "base/model"}), encoding="utf-8"
+            json.dumps({"base_model_name_or_path": self.EXPECTED_BASE_MODEL}),
+            encoding="utf-8",
         )
         (self.adapter_path / "adapter_model.safetensors").write_bytes(b"weights")
         (self.adapter_path / "tokenizer.json").write_text("{}", encoding="utf-8")
@@ -548,7 +684,9 @@ class TestCompletedSFTHandoff(unittest.TestCase):
         write_manifest(
             self.manifest_path,
             build_artifact_manifest(
-                self.adapter_path, repo_id="repo", revision="a" * 40
+                self.adapter_path,
+                repo_id=self.EXPECTED_REPO,
+                revision=self.EXPECTED_REVISION,
             ),
         )
 
@@ -584,6 +722,44 @@ class TestCompletedSFTHandoff(unittest.TestCase):
 
         self.assertEqual(result.status, CheckStatus.FAIL)
         self.assertIn("sha-256 mismatch", result.details.lower())
+
+    def test_sft_check_rejects_unexpected_repository(self):
+        manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        manifest["repo_id"] = "other/sft"
+        self.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        result = E2EVerifier(repo_root=self.root).check_tier3_sft_evaluation()
+
+        self.assertEqual(result.status, CheckStatus.FAIL)
+        self.assertIn("repo_id", result.details)
+
+    def test_sft_check_rejects_unexpected_immutable_revision(self):
+        manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        manifest["revision"] = "b" * 40
+        self.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        result = E2EVerifier(repo_root=self.root).check_tier3_sft_evaluation()
+
+        self.assertEqual(result.status, CheckStatus.FAIL)
+        self.assertIn("revision", result.details)
+
+    def test_sft_check_rejects_unexpected_but_internally_consistent_base_model(self):
+        (self.adapter_path / "adapter_config.json").write_text(
+            json.dumps({"base_model_name_or_path": "other/model"}), encoding="utf-8"
+        )
+        write_manifest(
+            self.manifest_path,
+            build_artifact_manifest(
+                self.adapter_path,
+                repo_id=self.EXPECTED_REPO,
+                revision=self.EXPECTED_REVISION,
+            ),
+        )
+
+        result = E2EVerifier(repo_root=self.root).check_tier3_sft_evaluation()
+
+        self.assertEqual(result.status, CheckStatus.FAIL)
+        self.assertIn("base_model_name_or_path", result.details)
 
 
 if __name__ == "__main__":
